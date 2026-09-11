@@ -4,9 +4,9 @@ A local-network party trivia app for a shared TV or laptop screen. The host cont
 
 ## Views
 
-- **Host**: `/#host` is the control desk. Pick squares, reveal questions and answers, manage Daily Double wagers, award or retract points, add/remove/rename teams, and reset the game.
-- **Display**: `/#display` is the shared screen. It shows the Jeopardy board, active question, and scoreboard without controls.
-- **Admin**: `/#admin` is the unauthenticated local setup panel for adding, editing, and deleting Jeopardy categories and their five questions.
+- **Host**: `/#host` is the control desk. Pick squares, reveal questions and answers, manage It's Gambling Time! wagers, award or retract points, add/remove/rename teams, start the Search Showdown, lock subject pairs and Guesser choices, run live lookup, or use manual override.
+- **Display**: `/#display` is the shared screen. It shows the Jeopardy board, active question, Search Showdown roles/results, finale score, and final leaderboard without controls.
+- **Admin**: `/#admin` is the unauthenticated local setup panel for adding, editing, and deleting Jeopardy categories and their five questions, plus configuring the even number of Search Showdown rounds and point values.
 
 All host actions go to the Node server over Socket.io. The server owns the live game state and broadcasts `game:state` to every connected browser, so host and display stay synchronized without refreshes. MongoDB stores reusable Jeopardy categories; a game reset only resets live state and does not delete content.
 
@@ -16,9 +16,17 @@ All host actions go to the Node server over Socket.io. The server owns the live 
 
 Open Host and Display. Start the game, then choose a category/value square from Host. The selected question opens over the board on the Display. Reveal the answer, award the square value to a team, or close it unanswered. Used squares turn grey.
 
-A Daily Double is configured per question in Admin. When selected, the Display plays a bright Daily Double cue while the Host chooses the wagering team and amount. There is no base-value minimum: a team with a positive score can wager any amount from zero up to its score, while a team in the negatives can wager up to the absolute value of its score to work back to break-even. After the wager is set, reveal the question and choose `Correct` to add the wager or `Incorrect` to subtract it. Every awarded score change appears in Host's Recent awards list and can be retracted later; the correction is broadcast to Display immediately.
+It's Gambling Time! is configured per question in Admin. When selected, the Display plays a bright It's Gambling Time! cue while the Host chooses the wagering team and amount. There is no base-value minimum: a team with a positive score can wager any amount from zero up to its score, while a team in the negatives can wager up to the absolute value of its score to work back to break-even. After the wager is set, reveal the question and choose `Correct` to add the wager or `Incorrect` to subtract it. Every awarded score change appears in Host's Recent awards list and can be retracted later; the correction is broadcast to Display immediately.
 
 Scores are manual and team-based. The default teams are The Bright Sparks and Quiztopher Walken. Host can add teams up to 12, remove teams while keeping at least two, and rename any team before or during play. Team changes and scores are broadcast to Display in real time.
+
+### Finale: Search Showdown
+
+After Jeopardy, only the top two main-round teams advance. The Host starts an even-numbered finale, with the starting Challenger selected from the finalist pair and roles alternating strictly every round. The Challenger proposes two non-empty subjects. The Host locks the Guesser to Option A or B; the other finalist automatically owns the remaining option.
+
+`Live lookup` compares the exact pair through the unofficial `google-trends-api` package over the previous 12 months. The Display shows a calculating state, then both relative scores and the winning option. The team holding the higher option receives that round's fixed points. If the lookup fails, Host can choose the winning option manually and the round is recorded as a manual override. Equal Trends scores are not scored: discard the pair and propose a fresh one.
+
+Finale points are tracked separately. At completion, finalists are ranked by main-round score plus Finale score; non-finalists keep their main-round placement. An overall tie starts sudden death, using the same enforced challenge format.
 
 ## Setup
 
@@ -72,6 +80,8 @@ Then open:
 - Admin: `http://localhost:5173/#admin`
 
 The Vite development server proxies `/api` requests and Socket.io WebSocket traffic to the Express server on port `3000`, so buttons, realtime updates, and the Admin panel work from the `5173` URL. The backend connects to MongoDB using `MONGODB_URI`.
+
+The Search Showdown's live lookup is the one feature that requires internet access at party time. Jeopardy, MongoDB, and local realtime sync continue to work on the home network, but a venue with no internet or aggressive rate limiting may require the Host's manual winner override.
 
 To seed the database while using this setup, run:
 

@@ -6,8 +6,9 @@ import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import { Server } from 'socket.io';
-import { CategoryModel } from './models';
-import type { GameState, JeopardyCategory, ScoreAward, Team } from './types';
+import googleTrends from 'google-trends-api';
+import { CategoryModel, ShowdownConfigModel } from './models';
+import type { GameState, JeopardyCategory, ScoreAward, ShowdownConfig, ShowdownHistoryEntry, ShowdownOption, Team } from './types';
 
 const port = Number(process.env.PORT ?? 3000);
 const mongoUri = process.env.MONGODB_URI ?? 'mongodb://localhost:27017/lan_party_trivia';
@@ -28,6 +29,7 @@ let state: GameState = {
   round: 'jeopardy',
   teams: defaultTeams,
   categories: [],
+  showdownConfig: { totalRounds: 4, points: [100, 150, 200, 250] },
   scoreAwards: [],
   message: 'Choose a square to begin.',
 };
@@ -48,8 +50,22 @@ const serializeCategories = (items: Array<{ _id: { toString: () => string }; tit
   }));
 
 async function loadContent() {
-  const categories = await CategoryModel.find().sort({ order: 1 });
+  const [categories, config] = await Promise.all([
+    CategoryModel.find().sort({ order: 1 }),
+    ShowdownConfigModel.findOneAndUpdate({}, {}, { upsert: true, new: true, setDefaultsOnInsert: true }),
+  ]);
   state.categories = serializeCategories(categories);
+  state.showdownConfig = { totalRounds: normalizeRoundCount(config.totalRounds), points: normalizePoints(config.points), startingTeamId: config.startingTeamId ?? undefined };
+}
+
+function normalizeRoundCount(value: number) {
+  const count = Number.isFinite(value) ? Math.max(2, Math.floor(value)) : 4;
+  return count % 2 === 0 ? count : count + 1;
+}
+
+function normalizePoints(values: number[]) {
+  const points = values.filter((value) => Number.isFinite(value) && value > 0).map((value) => Math.floor(value));
+  return points.length > 0 ? points : [100, 150, 200, 250];
 }
 
 function publish() {
@@ -68,9 +84,71 @@ function recordAward(teamId: string, amount: number, label: string) {
   updateTeam(teamId, amount);
 }
 
+function showdownScore(showdown: NonNullable<GameState['activeShowdown']>, teamId: string) {
+  return showdown.scores.find((item) => item.teamId === teamId)?.score ?? 0;
+}
+
+function addShowdownScore(showdown: NonNullable<GameState['activeShowdown']>, teamId: string, amount: number) {
+  const score = showdown.scores.find((item) => item.teamId === teamId);
+  if (score) score.score += amount;
+}
+
+function finalistIds() {
+  return state.teams.slice().sort((a, b) => b.score - a.score).slice(0, 2).map((team) => team.id);
+}
+
+function startShowdown() {
+  const finalists = finalistIds();
+  if (finalists.length < 2) return false;
+  const startingTeam = finalists.includes(state.showdownConfig.startingTeamId ?? '') ? state.showdownConfig.startingTeamId : finalists[0];
+  state.round = 'showdown';
+  state.activeShowdown = {
+    finalistIds: finalists,
+    challengerId: startingTeam!,
+    guesserId: finalists.find((id) => id !== startingTeam)!,
+    round: 1,
+    totalRounds: state.showdownConfig.totalRounds,
+    phase: 'draft',
+    subjectA: '',
+    subjectB: '',
+    scores: finalists.map((teamId) => ({ teamId, score: 0 })),
+    history: [],
+  };
+  state.message = 'Search Showdown ready. Enter the first pair.';
+  return true;
+}
+
+function resolveShowdown(lookup: { scoreA: number; scoreB: number; winner: ShowdownOption | 'tie'; source: 'live' | 'manual' }) {
+  const showdown = state.activeShowdown;
+  if (!showdown || !showdown.guesserChoice || lookup.winner === 'tie') return;
+  const winnerId = showdown.guesserChoice === lookup.winner ? showdown.guesserId : showdown.challengerId;
+  const points = state.showdownConfig.points[showdown.round - 1] ?? state.showdownConfig.points.at(-1) ?? 100;
+  const history: ShowdownHistoryEntry = { round: showdown.round, subjectA: showdown.subjectA, subjectB: showdown.subjectB, lookup, points, winnerTeamId: winnerId };
+  showdown.history.push(history);
+  addShowdownScore(showdown, winnerId, points);
+  showdown.lookup = lookup;
+  showdown.phase = 'resolved';
+  state.message = `${state.teams.find((team) => team.id === winnerId)?.name ?? 'Team'} wins ${points} Finale points.`;
+}
+
+async function trendsLookup(subjectA: string, subjectB: string) {
+  const raw = await googleTrends.interestOverTime({
+    keyword: [subjectA, subjectB],
+    startTime: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+    endTime: new Date(),
+  });
+  const data = JSON.parse(raw) as { default?: { timelineData?: Array<{ value?: number[] }> } };
+  const values = data.default?.timelineData?.map((item) => item.value ?? []).filter((value) => value.length >= 2);
+  if (!values || values.length === 0) throw new Error('Google Trends returned no comparison data.');
+  const scoreA = Math.round(values.reduce((sum, value) => sum + value[0], 0) / values.length);
+  const scoreB = Math.round(values.reduce((sum, value) => sum + value[1], 0) / values.length);
+  return { scoreA, scoreB, winner: scoreA === scoreB ? 'tie' as const : scoreA > scoreB ? 'A' as const : 'B' as const };
+}
+
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
-app.get('/api/content', (_req, res) => res.json({ categories: state.categories }));
+app.get('/api/content', (_req, res) => res.json({ categories: state.categories, showdownConfig: state.showdownConfig }));
 app.get('/api/state', (_req, res) => res.json(state));
+app.get('/api/showdown-config', (_req, res) => res.json(state.showdownConfig));
 
 app.post('/api/content/reload', async (_req, res) => {
   await loadContent();
@@ -97,20 +175,39 @@ app.delete('/api/categories/:id', async (req, res) => {
   res.status(204).end();
 });
 
+app.put('/api/showdown-config', async (req, res) => {
+  const body = req.body as Partial<ShowdownConfig>;
+  const totalRounds = normalizeRoundCount(Number(body.totalRounds));
+  const points = normalizePoints(Array.isArray(body.points) ? body.points.map(Number) : []);
+  const config = await ShowdownConfigModel.findOneAndUpdate({}, { totalRounds, points, startingTeamId: body.startingTeamId }, { upsert: true, new: true, setDefaultsOnInsert: true });
+  state.showdownConfig = { totalRounds, points, startingTeamId: config.startingTeamId ?? undefined };
+  publish();
+  res.json(state.showdownConfig);
+});
+
 io.on('connection', (socket) => {
   socket.emit('game:state', state);
-  socket.on('game:action', (action: { type: string; [key: string]: string | number | undefined }) => {
+  socket.on('game:action', async (action: { type: string; [key: string]: string | number | undefined }) => {
     switch (action.type) {
       case 'start':
         state.phase = 'playing';
         state.message = 'Game on. Pick a square.';
+        break;
+      case 'start-showdown':
+        if (!startShowdown()) state.message = 'At least two teams are needed for the Search Showdown.';
+        break;
+      case 'set-showdown-start':
+        if (typeof action.teamId === 'string' && state.teams.some((team) => team.id === action.teamId)) {
+          state.showdownConfig.startingTeamId = action.teamId;
+          state.message = `${state.teams.find((team) => team.id === action.teamId)?.name} starts the Search Showdown.`;
+        }
         break;
       case 'select-jeopardy': {
         const category = state.categories.find((item) => item.id === action.categoryId);
         const question = category?.questions.find((item) => item.id === action.questionId);
         if (category && question && !question.used) {
           state.activeJeopardy = { categoryId: category.id, questionId: question.id, revealed: false, dailyDoubleCue: question.dailyDouble };
-          state.message = question.dailyDouble ? 'Daily Double! Set a wager, then reveal.' : 'Question selected.';
+          state.message = question.dailyDouble ? "It's Gambling Time! Set a wager, then reveal." : 'Question selected.';
         }
         break;
       }
@@ -147,6 +244,109 @@ io.on('connection', (socket) => {
         state.message = points > 0 ? `Awarded ${points} points.` : 'Square closed.';
         break;
       }
+      case 'showdown-set-subjects': {
+        const showdown = state.activeShowdown;
+        if (state.round === 'showdown' && showdown && showdown.phase === 'draft' && typeof action.subjectA === 'string' && typeof action.subjectB === 'string' && action.subjectA.trim() && action.subjectB.trim()) {
+          showdown.subjectA = action.subjectA.trim();
+          showdown.subjectB = action.subjectB.trim();
+          showdown.guesserChoice = undefined;
+          showdown.lookup = undefined;
+          state.message = 'Subjects entered. Choose the Guesser\'s side.';
+        }
+        break;
+      }
+      case 'showdown-set-choice': {
+        const showdown = state.activeShowdown;
+        if (showdown && showdown.phase === 'draft' && showdown.subjectA && showdown.subjectB && (action.choice === 'A' || action.choice === 'B')) {
+          showdown.guesserChoice = action.choice;
+          state.message = 'Choice locked. Run the Trends lookup.';
+        }
+        break;
+      }
+      case 'showdown-lookup': {
+        const showdown = state.activeShowdown;
+        if (showdown && showdown.phase === 'draft' && showdown.subjectA && showdown.subjectB && showdown.guesserChoice) {
+          showdown.phase = 'calculating';
+          state.message = 'Calculating Google Trends comparison...';
+          publish();
+          try {
+            const result = await trendsLookup(showdown.subjectA, showdown.subjectB);
+            if (result.winner === 'tie') {
+              showdown.lookup = { ...result, source: 'live' };
+              showdown.history.push({ round: showdown.round, subjectA: showdown.subjectA, subjectB: showdown.subjectB, lookup: showdown.lookup, points: 0 });
+              showdown.phase = 'tie';
+              state.message = 'Trends returned a tie. Discard this pair and propose another.';
+            } else {
+              resolveShowdown({ ...result, source: 'live' });
+            }
+          } catch (error) {
+            console.error('Google Trends lookup failed:', error);
+            showdown.phase = 'manual';
+            state.message = 'Live lookup failed. Choose the winning subject manually.';
+          }
+        }
+        break;
+      }
+      case 'showdown-manual-result': {
+        const showdown = state.activeShowdown;
+        if (showdown && showdown.phase === 'manual' && (action.choice === 'A' || action.choice === 'B')) {
+          resolveShowdown({ scoreA: 0, scoreB: 0, winner: action.choice, source: 'manual' });
+        }
+        break;
+      }
+      case 'showdown-discard-tie': {
+        const showdown = state.activeShowdown;
+        if (showdown && showdown.phase === 'tie') {
+          showdown.phase = 'draft';
+          showdown.subjectA = '';
+          showdown.subjectB = '';
+          showdown.guesserChoice = undefined;
+          showdown.lookup = undefined;
+          state.message = 'Pair discarded. Enter a fresh comparison.';
+        }
+        break;
+      }
+      case 'showdown-next': {
+        const showdown = state.activeShowdown;
+        if (showdown && showdown.phase === 'resolved') {
+          if (showdown.round >= showdown.totalRounds) {
+            showdown.phase = 'complete';
+            state.message = 'Search Showdown complete.';
+          } else {
+            const nextChallenger = showdown.guesserId;
+            showdown.challengerId = nextChallenger;
+            showdown.guesserId = showdown.finalistIds.find((id) => id !== nextChallenger)!;
+            showdown.round += 1;
+            showdown.phase = 'draft';
+            showdown.subjectA = '';
+            showdown.subjectB = '';
+            showdown.guesserChoice = undefined;
+            showdown.lookup = undefined;
+            state.message = `Round ${showdown.round}: enter a fresh pair.`;
+          }
+        }
+        break;
+      }
+      case 'showdown-sudden-death': {
+        const showdown = state.activeShowdown;
+        if (showdown && showdown.phase === 'complete') {
+          const combined = showdown.finalistIds.map((teamId) => (state.teams.find((team) => team.id === teamId)?.score ?? 0) + showdownScore(showdown, teamId));
+          if (combined[0] === combined[1]) {
+            const nextChallenger = showdown.guesserId;
+            showdown.challengerId = nextChallenger;
+            showdown.guesserId = showdown.finalistIds.find((id) => id !== nextChallenger)!;
+            showdown.round += 1;
+            showdown.totalRounds = showdown.round;
+            showdown.phase = 'draft';
+            showdown.subjectA = '';
+            showdown.subjectB = '';
+            showdown.guesserChoice = undefined;
+            showdown.lookup = undefined;
+            state.message = 'Sudden death. Enter the deciding pair.';
+          }
+        }
+        break;
+      }
       case 'rename-team': {
         const team = state.teams.find((item) => item.id === action.teamId);
         if (team && typeof action.name === 'string') team.name = action.name;
@@ -177,7 +377,7 @@ io.on('connection', (socket) => {
         break;
       }
       case 'reset':
-        state = { ...state, phase: 'setup', round: 'jeopardy', teams: state.teams.map((team) => ({ ...team, score: 0 })), scoreAwards: [], activeJeopardy: undefined, message: 'Choose a square to begin.' };
+        state = { ...state, phase: 'setup', round: 'jeopardy', teams: state.teams.map((team) => ({ ...team, score: 0 })), scoreAwards: [], activeJeopardy: undefined, activeShowdown: undefined, message: 'Choose a square to begin.' };
         for (const category of state.categories) for (const question of category.questions) question.used = false;
         break;
     }

@@ -1,0 +1,33 @@
+# Dependencies (covers root, client/, server/ regardless of hoisting)
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build output
+client/dist/
+server/dist/
+client/build/
+server/build/
+client/.vite/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+client/.env
+server/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+
+# TypeScript build cache
+*.tsbuildinfo
