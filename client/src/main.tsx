@@ -11,7 +11,7 @@ const emptyState: GameState = {
   teams: [],
   categories: [],
   scoreAwards: [],
-  showdownConfig: { totalRounds: 4, points: [100, 150, 200, 250] },
+  showdownConfig: { totalRounds: 4 },
   message: 'Connectingâ€¦',
 };
 
@@ -622,7 +622,7 @@ function Admin() {
   const [content, setContent] = React.useState<{
     categories: GameState['categories'];
     showdownConfig: GameState['showdownConfig'];
-  }>({ categories: [], showdownConfig: { totalRounds: 4, points: [100, 150, 200, 250] } });
+  }>({ categories: [], showdownConfig: { totalRounds: 4 } });
   const [selected, setSelected] = React.useState('');
   const [notice, setNotice] = React.useState('');
   const load = React.useCallback(
