@@ -29,7 +29,7 @@ function useGameState() {
   return { state, action };
 }
 
-function Scoreboard({ state }: { state: GameState }) {
+function Scoreboard({ state, display = false }: { state: GameState; display?: boolean }) {
   const showdown = state.activeShowdown;
   return (
     <div className="scoreboard">
@@ -46,7 +46,7 @@ function Scoreboard({ state }: { state: GameState }) {
           >
             <span>
               {team.name}
-              <small>{showdown?.finalistIds.includes(team.id) ? `Finale +${finale}` : ''}</small>
+                {!display && <small>{showdown?.finalistIds.includes(team.id) ? `Finale +${finale}` : ''}</small>}
             </span>
             <strong>{total}</strong>
           </div>
@@ -110,15 +110,18 @@ function ScoreActions({
 function WagerControls({
   state,
   action,
+  originalValue,
 }: {
   state: GameState;
   action: (type: string, payload?: Record<string, string | number>) => void;
+  originalValue: number;
 }) {
   const [teamId, setTeamId] = React.useState('');
   const [wager, setWager] = React.useState('');
   return (
     <div className="wager-panel">
       <p>Select the wagering team and amount before revealing the question.</p>
+      <p className="original-value">Original square value: <strong>${originalValue}</strong></p>
       <div className="wager-controls">
         <select value={teamId} onChange={(event) => setTeamId(event.target.value)}>
           <option value="">Wagering team</option>
@@ -190,7 +193,7 @@ function JeopardyBoard({
                   action('select-jeopardy', { categoryId: category.id, questionId: question.id })
                 }
               >
-                {question?.used ? 'â€”' : `$${question?.value ?? 0}`}
+                {question?.used ? null : `$${question?.value ?? 0}`}
                 {!display && question?.dailyDouble && !question.used ? <small>GAMBLE</small> : null}
               </button>
             );
@@ -204,7 +207,7 @@ function JeopardyBoard({
           {dailyCue ? (
             <>
               <span className="daily-double-title">IT'S GAMBLING TIME!</span>
-              {!display && <WagerControls state={state} action={action} />}
+              {!display && <WagerControls state={state} action={action} originalValue={activeQuestion.value} />}
             </>
           ) : (
             <>
@@ -255,9 +258,7 @@ function JeopardyBoard({
             </>
           )}
         </div>
-      ) : (
-        !display && <div className="empty-stage">Pick a square to put it on screen.</div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -281,8 +282,6 @@ function ShowdownBoard({
   if (!showdown) return <div className="empty-stage">Start the Search Showdown from Host.</div>;
   const challenger = state.teams.find((team) => team.id === showdown.challengerId);
   const guesser = state.teams.find((team) => team.id === showdown.guesserId);
-  const points =
-    state.showdownConfig.points[showdown.round - 1] ?? state.showdownConfig.points.at(-1) ?? 100;
   const combined = state.teams
     .map((team) => ({
       team,
@@ -293,6 +292,17 @@ function ShowdownBoard({
           : 0),
     }))
     .sort((a, b) => b.total - a.total);
+  const finalists = showdown.finalistIds
+    .map((teamId) => {
+      const entry = combined.find((item) => item.team.id === teamId)!;
+      return {
+        ...entry,
+        boardScore: entry.team.score,
+        finaleScore: showdown.scores.find((item) => item.teamId === teamId)?.score ?? 0,
+      };
+    })
+    .sort((a, b) => b.finaleScore - a.finaleScore || b.boardScore - a.boardScore);
+  const nonFinalists = combined.filter((entry) => !showdown.finalistIds.includes(entry.team.id));
   const finalistTotals = showdown.finalistIds.map(
     (teamId) => combined.find((entry) => entry.team?.id === teamId)?.total ?? 0,
   );
@@ -326,13 +336,13 @@ function ShowdownBoard({
             <div className="choice-controls">
               <span>Lock {guesser?.name}'s choice:</span>
               <button
-                className="button"
+                className={`button ${showdown.guesserChoice === 'A' ? 'choice-selected' : ''}`}
                 onClick={() => action('showdown-set-choice', { choice: 'A' })}
               >
                 Choose A
               </button>
               <button
-                className="button"
+                className={`button ${showdown.guesserChoice === 'B' ? 'choice-selected' : ''}`}
                 onClick={() => action('showdown-set-choice', { choice: 'B' })}
               >
                 Choose B
@@ -378,7 +388,7 @@ function ShowdownBoard({
   return (
     <div className={`showdown ${showdown.phase === 'calculating' ? 'calculating' : ''}`}>
       <div className="showdown-kicker">
-        SEARCH SHOWDOWN / ROUND {showdown.round} OF {showdown.totalRounds} / {points} POINTS
+        SEARCH SHOWDOWN / ROUND {showdown.round} OF {showdown.totalRounds}
       </div>
       <div className="showdown-roles">
         <span>
@@ -393,16 +403,31 @@ function ShowdownBoard({
       {showdown.phase === 'complete' ? (
         <>
           <h2>Final leaderboard</h2>
-          <div className="final-leaderboard">
-            {combined.map((entry, index) => (
-              <div key={entry.team?.id}>
-                <strong>
-                  #{index + 1} {entry.team?.name}
-                </strong>
-                <b>{entry.total}</b>
-              </div>
-            ))}
+          <div className="leaderboard-section">
+            <h3>Finalists · ranked by Finale score</h3>
+            <div className="final-leaderboard finalist-leaderboard">
+              {finalists.map((entry, index) => (
+                <div key={entry.team.id}>
+                  <strong>#{index + 1} {entry.team.name}</strong>
+                  <span>Board {entry.boardScore} · Finale {entry.finaleScore}</span>
+                  <b>{entry.total}</b>
+                </div>
+              ))}
+            </div>
           </div>
+          {nonFinalists.length > 0 && (
+            <div className="leaderboard-section">
+              <h3>Other teams · ranked by board score</h3>
+              <div className="final-leaderboard non-finalist-leaderboard">
+                {nonFinalists.map((entry, index) => (
+                  <div key={entry.team.id}>
+                    <strong>#{index + 1} {entry.team.name}</strong>
+                    <b>{entry.team.score}</b>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {finalistTotals[0] === finalistTotals[1] && !display && (
             <button className="button primary" onClick={() => action('showdown-sudden-death')}>
               Start sudden death
@@ -453,7 +478,7 @@ function ShowdownBoard({
           {controls}
         </>
       )}
-      {showdown.scores.map((entry) => (
+      {!display && showdown.scores.map((entry) => (
         <span className="showdown-score" key={entry.teamId}>
           {state.teams.find((team) => team.id === entry.teamId)?.name}: <b>{entry.score}</b>
         </span>
@@ -471,8 +496,7 @@ function Display({
 }) {
   return (
     <main className="screen display-view">
-      <Header state={state} label="DISPLAY" />
-      <Scoreboard state={state} />
+      <Scoreboard state={state} display />
       {state.round === 'showdown' ? (
         <ShowdownBoard state={state} action={action} display />
       ) : (
@@ -511,15 +535,15 @@ function ShowdownStarter({
         <div className="finalist-table-row" key={team.id}>
           <strong style={{ color: team.color }}>{team.name}</strong>
           <span>{team.score}</span>
-          <select
-            value={startingTeamId === team.id ? team.id : ''}
-            onChange={(event) =>
-              event.target.value && action('set-showdown-start', { teamId: event.target.value })
-            }
-          >
-            <option value="">No</option>
-            <option value={team.id}>Yes</option>
-          </select>
+          <label className="start-radio">
+            <input
+              type="radio"
+              name="showdown-starting-team"
+              checked={startingTeamId === team.id}
+              onChange={() => action('set-showdown-start', { teamId: team.id })}
+            />
+            <span>Starts</span>
+          </label>
         </div>
       ))}
     </div>
@@ -539,9 +563,6 @@ function Host({
       <div className="host-layout">
         <section className="main-panel">
           <div className="control-strip">
-            <button className="button primary" onClick={() => action('start')}>
-              Start game
-            </button>
             {state.round === 'jeopardy' && (
               <>
                 <ShowdownStarter state={state} action={action} />
@@ -709,24 +730,6 @@ function Admin() {
                     showdownConfig: {
                       ...current.showdownConfig,
                       totalRounds: Number(event.target.value),
-                    },
-                  }))
-                }
-              />
-            </label>
-            <label>
-              Point values
-              <input
-                value={content.showdownConfig.points.join(', ')}
-                onChange={(event) =>
-                  setContent((current) => ({
-                    ...current,
-                    showdownConfig: {
-                      ...current.showdownConfig,
-                      points: event.target.value
-                        .split(',')
-                        .map((value) => Number(value.trim()))
-                        .filter((value) => Number.isFinite(value)),
                     },
                   }))
                 }

@@ -6,7 +6,7 @@ A local-network party trivia app for a shared TV or laptop screen. The host cont
 
 - **Host**: `/#host` is the control desk. Pick squares, reveal questions and answers, manage It's Gambling Time! wagers, award or retract points, add/remove/rename teams, start the Search Showdown, lock subject pairs and Guesser choices, run live lookup, or use manual override.
 - **Display**: `/#display` is the shared screen. It shows the Jeopardy board, active question, Search Showdown roles/results, finale score, and final leaderboard without controls.
-- **Admin**: `/#admin` is the unauthenticated local setup panel for adding, editing, and deleting Jeopardy categories and their five questions, plus configuring the even number of Search Showdown rounds and point values.
+- **Admin**: `/#admin` is the unauthenticated local setup panel for adding, editing, and deleting Jeopardy categories and their five questions, plus configuring the even number of Search Showdown rounds.
 
 All host actions go to the Node server over Socket.io. The server owns the live game state and broadcasts `game:state` to every connected browser, so host and display stay synchronized without refreshes. MongoDB stores reusable Jeopardy categories; a game reset only resets live state and does not delete content.
 
@@ -24,7 +24,7 @@ Scores are manual and team-based. The default teams are The Bright Sparks and Qu
 
 After Jeopardy, only the top two main-round teams advance. The Host starts an even-numbered finale, with the starting Challenger selected from the finalist pair and roles alternating strictly every round. The Challenger proposes two non-empty subjects. The Host locks the Guesser to Option A or B; the other finalist automatically owns the remaining option.
 
-`Live lookup` compares the exact pair through the unofficial `google-trends-api` package over the previous 12 months. The Display shows a calculating state, then both relative scores and the winning option. The team holding the higher option receives that round's fixed points. If the lookup fails, Host can choose the winning option manually and the round is recorded as a manual override. Equal Trends scores are not scored: discard the pair and propose a fresh one.
+`Live lookup` compares the exact pair through the unofficial `google-trends-api` package over the previous 12 months. The Display shows a calculating state, then both relative scores and the winning option. The team holding the higher option receives exactly 1 Finale point. If the lookup fails, Host can choose the winning option manually and the round is recorded as a manual override. Equal Trends scores are not scored: discard the pair and propose a fresh one. Finale score details remain Host-only during play; the final leaderboard reveals combined totals at the end.
 
 Finale points are tracked separately. At completion, finalists are ranked by main-round score plus Finale score; non-finalists keep their main-round placement. An overall tie starts sudden death, using the same enforced challenge format.
 

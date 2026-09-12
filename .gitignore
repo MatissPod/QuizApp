@@ -31,3 +31,7 @@ Thumbs.db
 
 # TypeScript build cache
 *.tsbuildinfo
+
+client/dist/
+server/dist/
+node_modules/

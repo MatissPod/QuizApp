@@ -24,10 +24,14 @@ const defaultTeams: Team[] = [
   { id: 'team-blue', name: 'Quiztopher Walken', color: '#4da8da', score: 0 },
 ];
 
+function createDefaultTeams() {
+  return defaultTeams.map((team) => ({ ...team, score: 0 }));
+}
+
 let state: GameState = {
   phase: 'setup',
   round: 'jeopardy',
-  teams: defaultTeams,
+  teams: createDefaultTeams(),
   categories: [],
   showdownConfig: { totalRounds: 4, points: [100, 150, 200, 250] },
   scoreAwards: [],
@@ -122,7 +126,7 @@ function resolveShowdown(lookup: { scoreA: number; scoreB: number; winner: Showd
   const showdown = state.activeShowdown;
   if (!showdown || !showdown.guesserChoice || lookup.winner === 'tie') return;
   const winnerId = showdown.guesserChoice === lookup.winner ? showdown.guesserId : showdown.challengerId;
-  const points = state.showdownConfig.points[showdown.round - 1] ?? state.showdownConfig.points.at(-1) ?? 100;
+    const points = 1;
   const history: ShowdownHistoryEntry = { round: showdown.round, subjectA: showdown.subjectA, subjectB: showdown.subjectB, lookup, points, winnerTeamId: winnerId };
   showdown.history.push(history);
   addShowdownScore(showdown, winnerId, points);
@@ -189,10 +193,6 @@ io.on('connection', (socket) => {
   socket.emit('game:state', state);
   socket.on('game:action', async (action: { type: string; [key: string]: string | number | undefined }) => {
     switch (action.type) {
-      case 'start':
-        state.phase = 'playing';
-        state.message = 'Game on. Pick a square.';
-        break;
       case 'start-showdown':
         if (!startShowdown()) state.message = 'At least two teams are needed for the Search Showdown.';
         break;
@@ -377,7 +377,7 @@ io.on('connection', (socket) => {
         break;
       }
       case 'reset':
-        state = { ...state, phase: 'setup', round: 'jeopardy', teams: state.teams.map((team) => ({ ...team, score: 0 })), scoreAwards: [], activeJeopardy: undefined, activeShowdown: undefined, message: 'Choose a square to begin.' };
+        state = { ...state, phase: 'setup', round: 'jeopardy', teams: createDefaultTeams(), scoreAwards: [], activeJeopardy: undefined, activeShowdown: undefined, message: 'Game reset. Default teams and scores restored.' };
         for (const category of state.categories) for (const question of category.questions) question.used = false;
         break;
     }
