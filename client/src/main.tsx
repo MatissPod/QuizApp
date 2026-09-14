@@ -11,7 +11,10 @@ const emptyState: GameState = {
   teams: [],
   categories: [],
   scoreAwards: [],
-  showdownConfig: { totalRounds: 4 },
+  showdownConfig: {
+      totalRounds: 4,
+      points: []
+  },
   message: 'Connectingâ€¦',
 };
 
@@ -200,7 +203,7 @@ function JeopardyBoard({
           }),
         )}
       </div>
-      {activeQuestion ? (
+      {active &&activeQuestion ? (
         <div
           className={`question-stage ${active.revealed ? 'revealed' : ''} ${dailyCue ? 'daily-double-cue' : ''}`}
         >
@@ -224,25 +227,27 @@ function JeopardyBoard({
                     </button>
                   )}
                   {active.revealed && active.wager !== undefined && active.teamId ? (
-                    <>
-                      <button
-                        className="button primary"
-                        onClick={() =>
-                          action('score-jeopardy', { teamId: active.teamId, points: active.wager })
-                        }
-                      >
-                        Correct +{active.wager}
-                      </button>
-                      <button
-                        className="button danger"
-                        onClick={() =>
-                          action('score-jeopardy', { teamId: active.teamId, points: -active.wager })
-                        }
-                      >
-                        Incorrect -{active.wager}
-                      </button>
-                    </>
-                  ) : (
+                      (() => {
+                        const wager = active.wager;
+                        const teamId = active.teamId;
+                        return (
+                          <>
+                            <button
+                              className="button primary"
+                              onClick={() => action('score-jeopardy', { teamId, points: wager })}
+                            >
+                              Correct +{wager}
+                            </button>
+                            <button
+                              className="button danger"
+                              onClick={() => action('score-jeopardy', { teamId, points: -wager })}
+                            >
+                              Incorrect -{wager}
+                            </button>
+                          </>
+                        );
+                      })()
+                    ) : (
                     active.revealed && (
                       <ScoreActions state={state} action={action} points={activeQuestion.value} />
                     )
@@ -622,7 +627,10 @@ function Admin() {
   const [content, setContent] = React.useState<{
     categories: GameState['categories'];
     showdownConfig: GameState['showdownConfig'];
-  }>({ categories: [], showdownConfig: { totalRounds: 4 } });
+  }>({ categories: [], showdownConfig: {
+      totalRounds: 4,
+      points: []
+  } });
   const [selected, setSelected] = React.useState('');
   const [notice, setNotice] = React.useState('');
   const load = React.useCallback(
