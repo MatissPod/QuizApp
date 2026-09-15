@@ -107,12 +107,13 @@ The environment variables are:
 
 ## Day-of checklist
 
-1. Start Docker Desktop and run `docker-compose up --build`.
-2. Seed content once, or confirm your saved MongoDB content is present at `/#admin`.
-3. Open `/#display` on the TV and full-screen the browser.
-4. Open `/#host` on the host laptop; rename teams and test one reveal.
-5. Confirm both devices show the same scoreboard and board state.
-6. Keep the host tab private; only the display URL is shared with the room.
+1. Confirm the venue's Wi-Fi has real internet access, not just a local network — the Search Showdown's live lookup needs it. If it's unreliable, be ready to use the Host's manual winner override.
+2. Start Docker Desktop and run `docker-compose up --build`.
+3. Seed content once, or confirm your saved MongoDB content is present at `/#admin`.
+4. Open `/#display` on the TV and full-screen the browser.
+5. Open `/#host` on the host laptop; rename teams and test one reveal.
+6. Confirm both devices show the same scoreboard and board state.
+7. Keep the host tab private; only the display URL is shared with the room.
 
 ## Project layout
 
