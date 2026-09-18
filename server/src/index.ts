@@ -235,13 +235,17 @@ io.on('connection', (socket) => {
         break;
       }
       case 'score-jeopardy': {
+        const points = Number(action.points ?? state.activeJeopardy?.wager ?? 0);
+        if (typeof action.teamId === 'string') recordAward(action.teamId, points, `Jeopardy / ${points}`);
+        state.message = points > 0 ? `Awarded ${points} points.` : `Deducted ${Math.abs(points)} points.`;
+        break;
+      }
+      case 'close-jeopardy': {
         const category = state.categories.find((item) => item.id === state.activeJeopardy?.categoryId);
         const question = category?.questions.find((item) => item.id === state.activeJeopardy?.questionId);
-        const points = Number(action.points ?? state.activeJeopardy?.wager ?? question?.value ?? 0);
         if (question) question.used = true;
-        if (typeof action.teamId === 'string') recordAward(action.teamId, points, `Jeopardy / ${question?.value ?? points}`);
         state.activeJeopardy = undefined;
-        state.message = points > 0 ? `Awarded ${points} points.` : 'Square closed.';
+        state.message = 'Square closed.';
         break;
       }
       case 'showdown-set-subjects': {

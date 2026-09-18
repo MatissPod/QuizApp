@@ -101,7 +101,7 @@ export function JeopardyBoard({
                   )}
                   <button
                     className="button quiet"
-                    onClick={() => action('score-jeopardy', { points: 0 })}
+                    onClick={() => action('close-jeopardy')}
                   >
                     Close square
                   </button>
