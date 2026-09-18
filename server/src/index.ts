@@ -98,18 +98,19 @@ function addShowdownScore(showdown: NonNullable<GameState['activeShowdown']>, te
 }
 
 function finalistIds() {
+  const manual = state.showdownConfig.finalistIds;
+  if (manual && manual.length === 2) return manual;
   return state.teams.slice().sort((a, b) => b.score - a.score).slice(0, 2).map((team) => team.id);
 }
 
 function startShowdown() {
   const finalists = finalistIds();
   if (finalists.length < 2) return false;
-  const startingTeam = finalists.includes(state.showdownConfig.startingTeamId ?? '') ? state.showdownConfig.startingTeamId : finalists[0];
   state.round = 'showdown';
   state.activeShowdown = {
     finalistIds: finalists,
-    challengerId: startingTeam!,
-    guesserId: finalists.find((id) => id !== startingTeam)!,
+    challengerId: finalists[0],
+    guesserId: finalists[1],
     round: 1,
     totalRounds: state.showdownConfig.totalRounds,
     phase: 'draft',
@@ -196,12 +197,16 @@ io.on('connection', (socket) => {
       case 'start-showdown':
         if (!startShowdown()) state.message = 'At least two teams are needed for the Search Showdown.';
         break;
-      case 'set-showdown-start':
-        if (typeof action.teamId === 'string' && state.teams.some((team) => team.id === action.teamId)) {
-          state.showdownConfig.startingTeamId = action.teamId;
-          state.message = `${state.teams.find((team) => team.id === action.teamId)?.name} starts the Search Showdown.`;
+      case 'toggle-showdown-finalist': {
+        if (typeof action.teamId !== 'string') break;
+        const current = state.showdownConfig.finalistIds ?? [];
+        if (current.includes(action.teamId)) {
+          state.showdownConfig.finalistIds = current.filter((id) => id !== action.teamId);
+        } else if (current.length < 2) {
+          state.showdownConfig.finalistIds = [...current, action.teamId];
         }
         break;
+}
       case 'select-jeopardy': {
         const category = state.categories.find((item) => item.id === action.categoryId);
         const question = category?.questions.find((item) => item.id === action.questionId);
@@ -382,6 +387,7 @@ io.on('connection', (socket) => {
       }
       case 'reset':
         state = { ...state, phase: 'setup', round: 'jeopardy', teams: createDefaultTeams(), scoreAwards: [], activeJeopardy: undefined, activeShowdown: undefined, message: 'Game reset. Default teams and scores restored.' };
+        state.showdownConfig.finalistIds = undefined;
         for (const category of state.categories) for (const question of category.questions) question.used = false;
         break;
     }

@@ -37,6 +37,7 @@ export interface ShowdownConfig {
   totalRounds: number;
   points: number[];
   startingTeamId?: string;
+  finalistIds?: string[];
 }
 
 export interface ShowdownLookup {
@@ -44,6 +45,7 @@ export interface ShowdownLookup {
   scoreB: number;
   winner: ShowdownOption | 'tie';
   source: 'live' | 'manual';
+  finalistIds?: string[]
 }
 
 export interface ShowdownHistoryEntry {
